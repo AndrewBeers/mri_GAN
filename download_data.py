@@ -1,55 +1,24 @@
 import glob
 import os
 import tables
-import internetarchive
 import numpy as np
 
 from subprocess import call
 from scipy.misc import imresize
 from scipy.ndimage import zoom
+from scipy.ndimage.measurements import center_of_mass
 from PIL import Image
+from qtim_tools.qtim_utilities.qtim_format import convert_input_2_nifti
 
-def internet_archive_login():
+def extract_mri_cubes(data_directories, shape=(128,128,128)):
 
-    return
+    for directory in data_directories:
 
-def internet_archive_download(destination_directory='E:\Pages', collection='MBLWHOI'):
+        patients = glob.glob(os.path.join(directory, '*/'))
 
-    for i in internetarchive.search_items('collection:' + collection):
-        archive_id = i['identifier']
-        try:
-            if not os.path.exists(os.path.join(destination_directory, archive_id)):
-                internetarchive.download(archive_id, verbose=True, glob_pattern='*.pdf', destdir=destination_directory)
-            elif os.listdir(os.path.join(destination_directory, archive_id)) == []:
-                internetarchive.download(archive_id, verbose=True, glob_pattern='*.pdf', destdir=destination_directory)
-        except KeyboardInterrupt:
-            raise
-        except:
-            print 'ERROR downloading', archive_id
-    return
+        for patient in patients:
 
-def convert_pdf_to_image(conversion_directory='E:\Pages', output_directory='E:\Pages_Images', ghostscript_path='"C:/Program Files/gs/gs9.22/bin/gswin64c.exe"'):
-
-    documents = glob.glob(os.path.join(conversion_directory, '*/'))
-
-    for document in documents:
-        pdfs = glob.glob(os.path.join(document, '*.pdf'))
-        document_basename = os.path.join(output_directory, os.path.basename(os.path.dirname(document)))
-
-        if os.path.exists(document_basename + '-1.png'):
-            print 'Skipping', document_basename
-            continue
-
-        for pdf in pdfs:
-
-            if pdf.endswith('_bw.pdf'):
-                continue
-
-            command = ghostscript_path + " -dBATCH -dNOPAUSE -sDEVICE=png16m -r144 -sOutputFile=" + document_basename + "-%d.png" + ' ' + pdf
-            print(command)
-            call(command, shell=True)
-
-    return
+            tumor_label = center_of_mass()
 
 def preprocess_image(input_directory='E:/Pages_Images', output_directory='E:/Pages_Images_Preprocessed', resize_shape=(64, 64), verbose=True):
 

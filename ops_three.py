@@ -131,7 +131,7 @@ def batch_normal(input , scope="scope" , reuse=False):
     return batch_norm(input , epsilon=1e-5, decay=0.9 , scale=True, scope=scope , reuse= reuse , updates_collections=None)
 
 
-def resize_nearest_neighbor(x, new_size, old_size):
+def resize_nearest_neighbor(x, new_size, dims):
     
     # Weird discussion here about the best way to do this:
     # https://stackoverflow.com/questions/43814367/resize-3d-data-in-tensorflow-like-tf-image-resize-images
@@ -139,15 +139,16 @@ def resize_nearest_neighbor(x, new_size, old_size):
     # 2D Built-in Method
     # x = tf.image.resize_nearest_neighbor(x, new_size)
 
-    # Only scale first two axes, which maybe is appropriate. Interpolation shouldn't be a
-    # big deal, unless it leaves artifacts.
-    # Update.. this won't work.
-    # b, h, w, d, n = old_size
-    # reshapedData = tf.reshape(yourData, [b, w, h, d*n])
-    # resize_two = tf.image.resize_nearest_neighbor(x, (new_size[0], new_size[1]))
-    # x = tf.reshape(resize_two, [b, new_size[0], new_size[1], depth,n])
+    # Weirdo method by applying 2D twice.
 
-    # True, three-axis resampling, TBD:
+    axes = [1,2]
+    sizes = [[new_size[0], new_size[2]], [new_size[0], new_size[1]]]
+    for size, axis in zip(sizes,axes):
+        resized_list = []
+        unstack_img_depth_list = tf.unstack(x, axis=axis)
+        for i in unstack_img_depth_list:
+            resized_list.append(tf.image.resize_images(i, size, method=0))
+        x = tf.stack(resized_list, axis=ax)
 
     return x
 
@@ -156,30 +157,30 @@ def upscale(x, scale):
 
     # For 2d...
     b, h, w, d, n = get_conv_shape(x)
-    # return resize_nearest_neighbor(x, (h * scale, w * scale, d * scale), [b, h, w, d, n])
+    return resize_nearest_neighbor(x, (h * scale, w * scale, d * scale), [b, h, w, d, n])
 
-    # True, three-axis resampling, TBD:
-    isolate = tf.transpose(x,[0,4,1,2,3])  # [batch_size,n,width,height,depth]
-    flatten_it_all = tf.reshape([b * n * w * h * d, 1])  # flatten it
-    expanded_it = flatten_it_all * tf.ones([1, scale ** 3])
-    prepare_for_transpose = tf.reshape(expanded_it, [b * n, w, h, d, scale, scale, scale])
+    # Upscaling-only solution..
+    # https://stackoverflow.com/questions/43814367/resize-3d-data-in-tensorflow-like-tf-image-resize-images
 
-    # This is magical to me, study it more.
-    transpose_to_align_neighbors = tf.transpose(prepare_for_transpose, [0,1,6,2,5,3,4])
-    expand_it_all = tf.reshape(transpose_to_align_neighbors, [b, n, w*scale, h*scale, d*scale])
+    # isolate = tf.transpose(x,[0,4,1,2,3])  # [batch_size,n,width,height,depth]
+    # flatten_it_all = tf.reshape([b * n * w * h * d, 1])  # flatten it
+    # expanded_it = flatten_it_all * tf.ones([1, scale ** 3])
+    # prepare_for_transpose = tf.reshape(expanded_it, [b * n, w, h, d, scale, scale, scale])
 
-    # then finally reorder and you are done
-    reorder_dimensions = tf.transpose(expand_it_all,[0,2,3,4,1])  # [batch_size,width*2,height*2,depth*2,n]
+    # # This is magical to me, study it more.
+    # transpose_to_align_neighbors = tf.transpose(prepare_for_transpose, [0,1,6,2,5,3,4])
+    # expand_it_all = tf.reshape(transpose_to_align_neighbors, [b, n, w*scale, h*scale, d*scale])
 
-    return reorder_dimensions
+    # # then finally reorder and you are done
+    # reorder_dimensions = tf.transpose(expand_it_all,[0,2,3,4,1])  # [batch_size,width*2,height*2,depth*2,n]
+
+    # return reorder_dimensions
 
 
 def downscale(x, scale):
 
-    # Won't work, but not needed.
-    # b, h, w, d, n = get_conv_shape(x)
-    # return resize_nearest_neighbor(x, (h / scale, w / scale, d / scale), [b, h, w, d, n])
-    return
+    b, h, w, d, n = get_conv_shape(x)
+    return resize_nearest_neighbor(x, (h / scale, w / scale, d / scale), [b, h, w, d, n])
 
 
 def get_conv_shape(tensor):

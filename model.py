@@ -226,6 +226,10 @@ class PGGAN(object):
         for k, v in self.log_vars:
             tf.summary.scalar(k, v)
 
+        self.low_images = downscale(self.images, 2)
+        self.low_images = upscale(self.low_images, 2)
+        self.real_images = self.alpha_transition * self.images + (1 - self.alpha_transition) * self.low_images
+
 
     def train(self):
 
@@ -234,10 +238,8 @@ class PGGAN(object):
         alpha_transition_assign = self.alpha_transition.assign(step_pl / self.max_iterations)
 
         # Create Optimizers
-        opti_D = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.0 , beta2=0.99).minimize(
-            self.D_loss, var_list=self.d_vars)
-        opti_G = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.0 , beta2=0.99).minimize(
-            self.G_loss, var_list=self.g_vars)
+        opti_D = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.0 , beta2=0.99).minimize(self.D_loss, var_list=self.d_vars)
+        opti_G = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.0 , beta2=0.99).minimize(self.G_loss, var_list=self.g_vars)
 
         init = tf.global_variables_initializer()
         config = tf.ConfigProto()
@@ -276,12 +278,8 @@ class PGGAN(object):
                     realbatch_array = self.training_data.get_next_batch(batch_num=batch_num, zoom_level=self.zoom_level, batch_size=self.batch_size)
 
                     if self.transition and self.progressive_depth != 0:
-
-                        alpha = np.float(step) / self.max_iterations
-
-                        low_realbatch_array = scipy.ndimage.zoom(realbatch_array, zoom=[1, 0.5, 0.5, 0.5, 1])
-                        low_realbatch_array = scipy.ndimage.zoom(low_realbatch_array, zoom=[1, 2, 2, 2, 1])
-                        realbatch_array = alpha * realbatch_array + (1 - alpha) * low_realbatch_array
+                        
+                        realbatch_array = sess.run(self.real_images, feed_dict={self.images: realbatch_array})
 
                     sess.run(opti_D, feed_dict={self.volumes: realbatch_array, self.latent: sample_latent})
                     batch_num += 1
@@ -301,12 +299,11 @@ class PGGAN(object):
 
                 if step % 400 == 0:
 
-                    realbatch_array = np.clip(realbatch_array, -1, 1)
                     save_images(realbatch_array[0:self.batch_size], [2, self.batch_size/2], '{}/{:02d}_real.png'.format(self.samples_dir, step))
 
                     if self.transition and self.progressive_depth != 0:
 
-                        low_realbatch_array = np.clip(low_realbatch_array, -1, 1)
+                        low_realbatch_array = sess.run(self.low_images, feed_dict={self.images: realbatch_array})
                         save_images(low_realbatch_array[0:self.batch_size], [2, self.batch_size / 2], '{}/{:02d}_real_lower.png'.format(self.samples_dir, step))
                    
                     fake_image = sess.run(self.fake_images, feed_dict={self.volumes: realbatch_array, self.latent: sample_latent})
