@@ -1,6 +1,6 @@
 # Custom
-samples/
-log/
+samples*/
+log*/
 samples_smaller/
 log_smaller/
 *.hdf5

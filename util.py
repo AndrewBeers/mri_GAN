@@ -4,17 +4,17 @@ import scipy
 from qtim_tools.qtim_utilities.nifti_util import save_numpy_2_nifti
 
 def merge(images, size):
-    h, w = images.shape[1], images.shape[2]
-    img = np.zeros((h * size[0], w * size[1], 3))
+    h, w, d = images.shape[1], images.shape[2], images.shape[3]
+    img = np.zeros((h * size[0], w * size[1], d, 2))
     for idx, image in enumerate(images):
         i = idx % size[1]
         j = idx // size[1]
-        img[j * h:j * h + h, i * w: i * w + w, :] = image
+        img[j * h:j * h + h, i * w: i * w + w, :, :] = image
 
     return img
 
 def imsave(images, size, path):
-    return scipy.misc.imsave(path, merge(images, size))
+    return save_numpy_2_nifti(merge(images, size), np.eye(4), path)
 
 def inverse_transform(image):
     

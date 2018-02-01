@@ -7,7 +7,7 @@ import numpy as np
 import scipy
 
 from util import add_parameter, save_images
-from ops import lrelu, conv3d, fully_connect, upscale, pixel_norm, avgpool3d, WScaleLayer, minibatch_state_concat
+from ops_three import lrelu, conv3d, fully_connect, downscale, upscale, pixel_norm, avgpool3d, WScaleLayer, minibatch_state_concat
 
 
 class PGGAN(object):
@@ -31,8 +31,8 @@ class PGGAN(object):
 
         # Model Parameters
         add_parameter(self, kwargs, 'latent_size', 128)
-        add_parameter(self, kwargs, 'max_filter', 4096)
-        add_parameter(self, kwargs, 'channel', 3)
+        add_parameter(self, kwargs, 'max_filter', 128)
+        add_parameter(self, kwargs, 'channel', 2)
 
         # Derived Parameters
         self.log_vars = []
@@ -46,7 +46,7 @@ class PGGAN(object):
 
         # This will need to be a bit more complicated; see PGGAN paper.
 
-        return min(self.max_filter / (2 **(depth)), 128)
+        return min(self.max_filter / (2 **(depth)), 64)
 
     def generate(self, latent_var, progressive_depth=1, transition=False, alpha_transition=0.0):
 
@@ -55,7 +55,7 @@ class PGGAN(object):
             convs = []
 
             convs += [tf.reshape(latent_var, [self.batch_size, 1, 1, 1, self.latent_size])]
-            convs[-1] = pixel_norm(lrelu(conv3d(convs[-1], output_dim=self.get_filter_num(1), k_h=4, k_w=4, k_d=4, d_w=1, d_h=1, d_d=4, padding='Other', name='gen_n_1_conv')))
+            convs[-1] = pixel_norm(lrelu(conv3d(convs[-1], output_dim=self.get_filter_num(1), k_h=4, k_w=4, k_d=4, d_w=1, d_h=1, d_d=1, padding='Other', name='gen_n_1_conv')))
 
             convs += [tf.reshape(convs[-1], [self.batch_size, 4, 4, 4, self.get_filter_num(1)])] # why necessary? --andrew
             convs[-1] = pixel_norm(lrelu(conv3d(convs[-1], output_dim=self.get_filter_num(1), d_w=1, d_h=1, d_d=1, name='gen_n_2_conv')))
@@ -65,7 +65,7 @@ class PGGAN(object):
                 if i == progressive_depth - 2 and transition: # redundant conditions? --andrew
                     #To RGB
                     # Don't totally understand this yet, diagram out --andrew
-                    transition_conv = conv3d(convs[-1], output_dim=3, k_w=1, k_h=1, k_d=1, d_w=1, d_h=1, d_d=1, name='gen_y_rgb_conv_{}'.format(convs[-1].shape[1]))
+                    transition_conv = conv3d(convs[-1], output_dim=2, k_w=1, k_h=1, k_d=1, d_w=1, d_h=1, d_d=1, name='gen_y_rgb_conv_{}'.format(convs[-1].shape[1]))
                     transition_conv = upscale(transition_conv, 2)
 
                 convs += [upscale(convs[-1], 2)]
@@ -75,7 +75,7 @@ class PGGAN(object):
 
 
             #To RGB
-            convs += [conv3d(convs[-1], output_dim=3, k_w=1, k_h=1, k_d=1, d_w=1, d_h=1, d_d=1, name='gen_y_rgb_conv_{}'.format(convs[-1].shape[1]))]
+            convs += [conv3d(convs[-1], output_dim=2, k_w=1, k_h=1, k_d=1, d_w=1, d_h=1, d_d=1, name='gen_y_rgb_conv_{}'.format(convs[-1].shape[1]))]
 
             if progressive_depth == 1:
                 return convs[-1]
@@ -226,11 +226,6 @@ class PGGAN(object):
         for k, v in self.log_vars:
             tf.summary.scalar(k, v)
 
-        self.low_images = downscale(self.images, 2)
-        self.low_images = upscale(self.low_images, 2)
-        self.real_images = self.alpha_transition * self.images + (1 - self.alpha_transition) * self.low_images
-
-
     def train(self):
 
         # Create fade-in (transition) parameters.
@@ -240,6 +235,15 @@ class PGGAN(object):
         # Create Optimizers
         opti_D = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.0 , beta2=0.99).minimize(self.D_loss, var_list=self.d_vars)
         opti_G = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=0.0 , beta2=0.99).minimize(self.G_loss, var_list=self.g_vars)
+
+        # Create Volume Transparency Stuff..
+        self.low_volumes = downscale(self.volumes, 2)
+        self.low_volumes = upscale(self.low_volumes, 2)
+        self.real_volumes = self.alpha_transition * self.volumes + (1 - self.alpha_transition) * self.low_volumes
+
+        downscale_factor = 64 / (2 ** (self.progressive_depth + 1))
+        self.raw_volumes = tf.placeholder(tf.float32, [self.batch_size, 64, 64, 64, self.channel])
+        self.input_volumes = downscale(self.raw_volumes, downscale_factor)
 
         init = tf.global_variables_initializer()
         config = tf.ConfigProto()
@@ -275,11 +279,13 @@ class PGGAN(object):
 
                     sample_latent = np.random.normal(size=[self.batch_size, self.latent_size])
 
+                    # Not very Tensorflow aesthetic, here.
                     realbatch_array = self.training_data.get_next_batch(batch_num=batch_num, zoom_level=self.zoom_level, batch_size=self.batch_size)
+                    realbatch_array = sess.run(self.input_volumes, feed_dict={self.raw_volumes:realbatch_array})
 
                     if self.transition and self.progressive_depth != 0:
                         
-                        realbatch_array = sess.run(self.real_images, feed_dict={self.images: realbatch_array})
+                        realbatch_array = sess.run(self.real_volumes, feed_dict={self.volumes: realbatch_array})
 
                     sess.run(opti_D, feed_dict={self.volumes: realbatch_array, self.latent: sample_latent})
                     batch_num += 1
@@ -299,16 +305,15 @@ class PGGAN(object):
 
                 if step % 400 == 0:
 
-                    save_images(realbatch_array[0:self.batch_size], [2, self.batch_size/2], '{}/{:02d}_real.png'.format(self.samples_dir, step))
+                    save_images(realbatch_array[0:self.batch_size], [2, self.batch_size/2], '{}/{:02d}_real.nii.gz'.format(self.samples_dir, step))
 
                     if self.transition and self.progressive_depth != 0:
 
-                        low_realbatch_array = sess.run(self.low_images, feed_dict={self.images: realbatch_array})
-                        save_images(low_realbatch_array[0:self.batch_size], [2, self.batch_size / 2], '{}/{:02d}_real_lower.png'.format(self.samples_dir, step))
+                        low_realbatch_array = sess.run(self.low_volumes, feed_dict={self.volumes: realbatch_array})
+                        save_images(low_realbatch_array[0:self.batch_size], [2, self.batch_size / 2], '{}/{:02d}_real_lower.nii.gz'.format(self.samples_dir, step))
                    
                     fake_image = sess.run(self.fake_images, feed_dict={self.volumes: realbatch_array, self.latent: sample_latent})
-                    fake_image = np.clip(fake_image, -1, 1)
-                    save_images(fake_image[0:self.batch_size], [2, self.batch_size/2], '{}/{:02d}_train.png'.format(self.samples_dir, step))
+                    save_images(fake_image[0:self.batch_size], [2, self.batch_size/2], '{}/{:02d}_train.nii.gz'.format(self.samples_dir, step))
 
                 if np.mod(step, 4000) == 0 and step != 0:
                     self.saver.save(sess, self.output_model_path)

@@ -148,7 +148,7 @@ def resize_nearest_neighbor(x, new_size, dims):
         unstack_img_depth_list = tf.unstack(x, axis=axis)
         for i in unstack_img_depth_list:
             resized_list.append(tf.image.resize_images(i, size, method=0))
-        x = tf.stack(resized_list, axis=ax)
+        x = tf.stack(resized_list, axis=axis)
 
     return x
 
@@ -194,7 +194,7 @@ def int_shape(tensor):
 
 
 def avgpool3d(x, k=2):
-    return tf.nn.avg_pool(x, ksize=[1, k, k, k, 1], strides=[1, k, k, k, 1], padding='SAME')
+    return tf.nn.avg_pool3d(x, ksize=[1, k, k, k, 1], strides=[1, k, k, k, 1], padding='SAME')
 
 
 def instance_norm(input, scope="instance_norm"):
